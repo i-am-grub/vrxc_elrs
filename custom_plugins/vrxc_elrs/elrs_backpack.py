@@ -19,7 +19,6 @@ class CancelError(BaseException): ...
 
 
 class ELRSBackpack(VRxController):
-
     _connection: BackpackConnection | None = None
 
     def __init__(self, name, label, rhapi):
@@ -96,7 +95,6 @@ class ELRSBackpack(VRxController):
             self._establish_connection(con.type_)
 
         elif con == ConnectionTypeEnum.ONBOARD:
-
             if RH_GPIO.is_real_hw_GPIO():
                 logger.info("Turning on GPIO pins for NuclearHazard boards")
                 RH_GPIO.setmode(RH_GPIO.BCM)
@@ -117,8 +115,13 @@ class ELRSBackpack(VRxController):
         elif con == ConnectionTypeEnum.SOCKET:
             addr = self._rhapi.db.option("_socket_ip", None)
             if addr is not None:
-                ip_addr = socket.gethostbyname(addr)
-                self._establish_connection(con.type_, ip_addr=ip_addr)
+                try:
+                    ip_addr = socket.gethostbyname(addr)
+                except socket.gaierror:
+                    message = "Failed to connect to device's socket"
+                    self._rhapi.ui.message_notify(self._rhapi.language.__(message))
+                else:
+                    self._establish_connection(con.type_, ip_addr=ip_addr)
             else:
                 message = "IP Address for socket not provided"
                 self._rhapi.ui.message_notify(self._rhapi.language.__(message))
@@ -157,7 +160,6 @@ class ELRSBackpack(VRxController):
                 function_ = packet.function
 
                 if packet.type_ == MSPPacketType.RESPONSE:
-
                     if function_ == MSPTypes.MSP_ELRS_GET_BACKPACK_VERSION:
                         version = bytes(i for i in packet.payload if i != 0).decode(
                             "utf-8"
@@ -167,7 +169,6 @@ class ELRSBackpack(VRxController):
                         self._rhapi.ui.message_notify(self._rhapi.language.__(message))
 
                 if packet.type_ == MSPPacketType.COMMAND:
-
                     if function_ == MSPTypes.MSP_ELRS_BACKPACK_SET_RECORDING_STATE:
                         itr = packet.iterate_payload()
                         if (val := next(itr)) == 0x00:
@@ -398,7 +399,6 @@ class ELRSBackpack(VRxController):
             self._queue_lock.acquire()
             text = "ROTORHAZARD"
             for row in range(18):
-
                 self.send_clear_osd()
                 start_col = self.center_osd(len(text))
                 self.send_osd_text(row, start_col, text)
@@ -784,12 +784,10 @@ class ELRSBackpack(VRxController):
 
         results = args["results"]["by_race_time"]
         for result in results:
-
             if (
                 self._rhapi.db.pilot_attribute_value(result["pilot_id"], "elrs_active")
                 == "1"
             ):
-
                 if not pilots_completion[result["pilot_id"]]:
                     gevent.spawn(update_pos, result)
 
@@ -832,7 +830,6 @@ class ELRSBackpack(VRxController):
             return
 
         def done(result, win_condition):
-
             pilot_id = result["pilot_id"]
             start_col = self.center_osd(
                 len(self._rhapi.db.option("_pilotdone_message"))
@@ -852,18 +849,18 @@ class ELRSBackpack(VRxController):
             )
 
             if self._rhapi.db.option("_results_mode") == "1":
-                placement_message = f'PLACEMENT: {result["position"]}'
+                placement_message = f"PLACEMENT: {result['position']}"
                 place_col = self.center_osd(len(placement_message))
                 self.send_osd_text(results_row1, place_col, placement_message)
 
                 if win_condition == WinCondition.FASTEST_CONSECUTIVE:
-                    win_message = f'FASTEST {result["consecutives_base"]} CONSEC: {result["consecutives"]}'
+                    win_message = f"FASTEST {result['consecutives_base']} CONSEC: {result['consecutives']}"
                 elif win_condition == WinCondition.FASTEST_LAP:
-                    win_message = f'FASTEST LAP: {result["fastest_lap"]}'
+                    win_message = f"FASTEST LAP: {result['fastest_lap']}"
                 elif win_condition == WinCondition.FIRST_TO_LAP_X:
-                    win_message = f'TOTAL TIME: {result["total_time"]}'
+                    win_message = f"TOTAL TIME: {result['total_time']}"
                 else:
-                    win_message = f'LAPS COMPLETED: {result["laps"]}'
+                    win_message = f"LAPS COMPLETED: {result['laps']}"
 
                 win_col = self.center_osd(len(win_message))
                 self.send_osd_text(results_row2, win_col, win_message)
