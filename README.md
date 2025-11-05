@@ -94,7 +94,7 @@ To build the firmware, use the [ExpressLRS Configurator](https://github.com/Expr
     - If using the Web Flasher, select `Local Download` 
 6. Enter the backpack bind phrase (for race control from the director's transmitter)
 7. Build the firmware
-8. Follow [this guide](https://nuclearquads.github.io/vrxc) to flash the on board ESP32. Instead of downloading the backpack bin files, use the files built with the configurator.
+8. Follow [this guide](https://nuclearquads.com/instructions/vrxc) to flash the on board ESP32. Instead of downloading the backpack bin files, use the files built with the configurator.
 
 #### Flashing ELRS Netpack
 
