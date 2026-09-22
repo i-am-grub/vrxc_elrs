@@ -92,7 +92,8 @@ class ELRSBackpack(VRxController):
             return
 
         if con == ConnectionTypeEnum.USB:
-            self._establish_connection(con.type_)
+            port = (self._rhapi.db.option("_serial_port", "") or "").strip()
+            self._establish_connection(con.type_, port=port or None)
 
         elif con == ConnectionTypeEnum.ONBOARD:
             if RH_GPIO.is_real_hw_GPIO():

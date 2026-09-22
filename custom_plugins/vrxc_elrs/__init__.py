@@ -93,6 +93,39 @@ def initialize(rhapi: RHAPI.RHAPI):
     )
     rhapi.fields.register_option(_conn_opt, "elrs_settings")
 
+    _serial_port = UIField(
+        "_serial_port",
+        "ELRS USB Device Path",
+        desc="Leave empty for automatic detection. Apply changes with Backpack Disconnect, then Backpack Connect.",
+        value="",
+        placeholder="/dev/serial/by-path/...",
+        field_type=UIFieldType.TEXT,
+    )
+
+    def update_serial_port_visibility(args=None):
+        if args is not None and args.get("option") != "_conn_opt":
+            return
+        connection_id = rhapi.db.option("_conn_opt", None, as_int=True)
+        panel = "elrs_settings" if connection_id == ConnectionTypeEnum.USB.id_ else None
+        rhapi.fields.register_option(_serial_port, panel)
+        if args is not None:
+            rhapi.ui.broadcast_ui("settings", replace_panels=False)
+
+    update_serial_port_visibility()
+    rhapi.events.on(
+        Evt.OPTION_SET,
+        update_serial_port_visibility,
+        name="elrs_serial_port_visibility",
+    )
+    # Plugin initialization precedes database loading on RotorHazard. Re-read
+    # the saved selection once startup has made the options available.
+    rhapi.events.on(
+        Evt.STARTUP,
+        lambda _args: update_serial_port_visibility(),
+        name="elrs_serial_port_visibility_startup",
+        priority=75,
+    )
+
     _heat_name = UIField(
         "_heat_name",
         "Show Heat Name",
