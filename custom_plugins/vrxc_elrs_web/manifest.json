@@ -1,0 +1,10 @@
+{
+    "domain": "vrxc_elrs_web",
+    "name": "VRxC ELRS Web Bridge",
+    "author": "Florian Sauve",
+    "description": "ExpressLRS Backpack for RotorHazard, with the timer backpack plugged into a PC and reached through Chrome (Web Serial)",
+    "documentation_uri": "",
+    "required_rhapi_version": "1.2",
+    "version": "0.1.0",
+    "category": ["OSD & VRx Control"]
+}
