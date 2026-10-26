@@ -1,7 +1,9 @@
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol, Union
+from functools import partial
+from typing import final
 
 import gevent
 import gevent.queue
@@ -10,25 +12,44 @@ import serial
 import serial.tools.list_ports
 from gevent.queue import Queue
 
-from .msp import MSPPacket, MSPPacketType, MSPTypes
+from .msp import MSPFunction, MSPPacket, MSPPacketType
 
 SOCKET_PORT = 8080
 AVOIDED_PORTS = {"/dev/ttyAMA0", "/dev/ttyAMA10", "COM1"}
 
 logger = logging.getLogger(__name__)
 
+BackpackSerial = partial(
+    serial.Serial,
+    baudrate=460800,
+    bytesize=8,
+    parity="N",
+    stopbits=1,
+    timeout=5,
+    xonxoff=0,
+    rtscts=0,
+    write_timeout=5,
+)
 
-class BackpackConnection(Protocol):
+
+class BackpackConnection(ABC):
     """
     Protocol for backpack connections
     """
 
-    connected: bool
+    @abstractmethod
+    def __init__(
+        self, send_queue: Queue[MSPPacket], recieve_queue: Queue[MSPPacket]
+    ): ...
 
-    def __init__(self, send_queue: Queue, recieve_queue: Queue): ...
+    @property
+    @abstractmethod
+    def connected(self) -> bool: ...
 
-    def connect(self, **kwargs) -> bool: ...
+    @abstractmethod
+    def connect(self) -> bool: ...
 
+    @abstractmethod
     def disconnect(self): ...
 
 
@@ -42,21 +63,21 @@ class ConnectionType:
     id_: int
 
 
-class SerialConnection:
+class SerialConnection(BackpackConnection):
     """
     Backpack over serial connection
     """
 
-    _send_greenlet: Union[gevent.Greenlet, None] = None
-    _recieve_greenlet: Union[gevent.Greenlet, None] = None
-    _parsing_greenlet: Union[gevent.Greenlet, None] = None
-
-    def __init__(self, send_queue: Queue, recieve_queue: Queue):
+    def __init__(self, send_queue, recieve_queue):
         self._connected = False
         self._send_queue = send_queue
         self._recieve_queue = recieve_queue
-        self._connection: Union[serial.Serial, None] = None
-        self._parsing_queue = gevent.queue.Queue()
+        self._connection: serial.Serial | None = None
+        self._parsing_queue: gevent.queue.Queue[bytes] = gevent.queue.Queue()
+
+        self._send_greenlet: gevent.Greenlet | None = None
+        self._recieve_greenlet: gevent.Greenlet | None = None
+        self._parsing_greenlet: gevent.Greenlet | None = None
 
     @property
     def connected(self) -> bool:
@@ -64,26 +85,15 @@ class SerialConnection:
 
     def connect(self) -> bool:
         packet = MSPPacket()
-        packet.set_function(MSPTypes.MSP_ELRS_GET_BACKPACK_VERSION)
+        packet.set_function(MSPFunction.MSP_ELRS_GET_BACKPACK_VERSION)
 
         logger.info("Attempting to find backpack")
 
         avaliable_port = {port.device for port in serial.tools.list_ports.comports()}
 
         for port in avaliable_port - AVOIDED_PORTS:
-
             try:
-                connection = serial.Serial(
-                    port=port,
-                    baudrate=460800,
-                    bytesize=8,
-                    parity="N",
-                    stopbits=1,
-                    timeout=5,
-                    xonxoff=0,
-                    rtscts=0,
-                    write_timeout=5,
-                )
+                connection = BackpackSerial(port=port)
             except:
                 logger.warning(
                     "Failed to open serial device. Attempting to connect to new device..."
@@ -111,7 +121,7 @@ class SerialConnection:
             for packet in MSPPacket.packets_from_bytes(data):
                 if (
                     packet.type_ == MSPPacketType.RESPONSE
-                    and packet.function == MSPTypes.MSP_ELRS_GET_BACKPACK_VERSION
+                    and packet.function == MSPFunction.MSP_ELRS_GET_BACKPACK_VERSION
                 ):
                     self._connection = connection
                     self._connected = True
@@ -155,7 +165,9 @@ class SerialConnection:
         """
         Recieves data from the socket and adds it to the queue
         """
-        assert self._connection is not None
+        if self._connection is None:
+            msg = "Connection is not active"
+            raise RuntimeError(msg)
 
         try:
             while self._connected:
@@ -183,28 +195,32 @@ class SerialConnection:
         if self._recieve_greenlet is not None:
             self._recieve_greenlet.kill()
 
-        self._connection.close()
+        if self._connection is not None:
+            self._connection.close()
+            self._connection = None
 
 
-class SocketConnection:
+@final
+class SocketConnection(BackpackConnection):
     """
     Backpack over socket connection
     """
 
-    _send_greenlet: Union[gevent.Greenlet, None] = None
-    _recieve_greenlet: Union[gevent.Greenlet, None] = None
-
-    def __init__(self, send_queue: Queue, recieve_queue: Queue):
+    def __init__(self, send_queue, recieve_queue, ip_addr: str):
         self._connected = False
         self._send_queue = send_queue
         self._recieve_queue = recieve_queue
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+        self._send_greenlet: gevent.Greenlet | None = None
+        self._recieve_greenlet: gevent.Greenlet | None = None
+        self._ip_addr = ip_addr
+
     @property
     def connected(self) -> bool:
         return self._connected
 
-    def connect(self, ip_addr: str) -> bool:
+    def connect(self) -> bool:
         """
         Establishes the socket connection
 
@@ -212,16 +228,16 @@ class SocketConnection:
         """
         self._socket.settimeout(5)
         packet = MSPPacket()
-        packet.set_function(MSPTypes.MSP_ELRS_GET_BACKPACK_VERSION)
+        packet.set_function(MSPFunction.MSP_ELRS_GET_BACKPACK_VERSION)
 
         try:
-            self._socket.connect((ip_addr, SOCKET_PORT))
+            self._socket.connect((self._ip_addr, SOCKET_PORT))
             self._socket.sendall(packet.get_packet())
             data = self._socket.recv(128)
             for packet in MSPPacket.packets_from_bytes(data):
                 if (
                     packet.type_ == MSPPacketType.RESPONSE
-                    and packet.function == MSPTypes.MSP_ELRS_GET_BACKPACK_VERSION
+                    and packet.function == MSPFunction.MSP_ELRS_GET_BACKPACK_VERSION
                 ):
                     self._connected = True
                     break
