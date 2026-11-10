@@ -109,6 +109,21 @@ and press the `Flash Netpack Firmware` button.
 1. Verify RotorHazard v4.1.0+ is installed on the timer
 2. Follow the instructions in the [latest release](https://github.com/i-am-grub/VRxC_ELRS/releases) of the plugin to complete the installation process.
 
+### Selecting a USB device
+
+Select **USB** as the connection type in **ELRS Backpack General Settings** to
+show **ELRS USB Device Path**. Leave it empty to use automatic serial-port
+detection (the default), or enter a device path such as
+`/dev/serial/by-path/platform-3f980000.usb-usb-0:1.1.3:1.0-port0`.
+This path identifies a physical USB port, so keep the backpack plugged into that
+same port. A configured path is used exclusively; if it is unavailable or does
+not answer the backpack version request, connection fails without scanning other
+devices.
+
+The field is hidden for other connection types, which ignore its saved value.
+After changing the path, use **Backpack Disconnect**, then **Backpack Connect**,
+or restart RotorHazard. This setting does not add automatic startup retries.
+
 ### Control the Race from the Race Director's Transmitter
 
 There is a feature to control the race from the race director's transmitter by tracking the position of the `DVR Rec` switch setup within the transmitter's backpack. It currently works

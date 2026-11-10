@@ -62,16 +62,23 @@ class SerialConnection:
     def connected(self) -> bool:
         return self._connected
 
-    def connect(self) -> bool:
-        packet = MSPPacket()
-        packet.set_function(MSPTypes.MSP_ELRS_GET_BACKPACK_VERSION)
+    def connect(self, port: Union[str, None] = None) -> bool:
+        request = MSPPacket()
+        request.set_function(MSPTypes.MSP_ELRS_GET_BACKPACK_VERSION)
 
-        logger.info("Attempting to find backpack")
+        port = (port or "").strip()
+        if port:
+            logger.info("Connecting to backpack at configured USB path %s", port)
+            ports = [port]
+        else:
+            logger.info("Attempting to find backpack")
+            ports = sorted(
+                {device.device for device in serial.tools.list_ports.comports()}
+                - AVOIDED_PORTS
+            )
 
-        avaliable_port = {port.device for port in serial.tools.list_ports.comports()}
-
-        for port in avaliable_port - AVOIDED_PORTS:
-
+        for port in ports:
+            connection = None
             try:
                 connection = serial.Serial(
                     port=port,
@@ -84,41 +91,33 @@ class SerialConnection:
                     rtscts=0,
                     write_timeout=5,
                 )
-            except:
-                logger.warning(
-                    "Failed to open serial device. Attempting to connect to new device..."
-                )
-                continue
+                # Some devkits need extra time to establish the connection.
+                gevent.sleep(2)
+                connection.read_all()
+                connection.write(request.get_packet())
+                gevent.sleep(0.2)
 
-            # Some devkits need extra time to establish the connection
-            gevent.sleep(2)
+                data = connection.read_all()
+                for packet in MSPPacket.packets_from_bytes(data):
+                    if (
+                        packet.type_ == MSPPacketType.RESPONSE
+                        and packet.function == MSPTypes.MSP_ELRS_GET_BACKPACK_VERSION
+                    ):
+                        self._connection = connection
+                        self._connected = True
+                        break
 
-            # Clear out any previous data in the serial buffer
-            connection.read_all()
-
-            try:
-                connection.write(packet.get_packet())
-            except:
-                logger.error(
-                    "Failed to write to open serial device. Attempting to connect to new device..."
-                )
-                connection.close()
-                continue
-
-            gevent.sleep(0.2)
-
-            data = connection.read_all()
-            for packet in MSPPacket.packets_from_bytes(data):
-                if (
-                    packet.type_ == MSPPacketType.RESPONSE
-                    and packet.function == MSPTypes.MSP_ELRS_GET_BACKPACK_VERSION
-                ):
-                    self._connection = connection
-                    self._connected = True
+                if self._connected:
+                    logger.info("Found backpack at %s", port)
                     break
 
-            if self._connected:
-                break
+                logger.warning("No backpack version response from %s", port)
+            except (OSError, serial.SerialException) as exc:
+                logger.warning("Failed to connect to serial device %s: %s", port, exc)
+            finally:
+                # Release failed candidates, including other plugins' devices.
+                if connection is not None and not self._connected:
+                    connection.close()
 
         else:
             return False
