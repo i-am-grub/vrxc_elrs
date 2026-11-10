@@ -448,7 +448,7 @@ class ELRSBackpack(VRxController):
         heat_data = self._rhapi.db.heat_by_id(args["heat_id"])
         if heat_data:
             class_id = heat_data.class_id
-            heat_name = heat_data.display_name
+            heat_name = heat_data.display_name_short
             round_num = self._rhapi.db.heat_max_round(args["heat_id"]) + 1
         else:
             class_id = None
