@@ -141,6 +141,26 @@ will need to be enabled under `ELRS Backpack General Settings`
 > [!TIP]
 > Anytime the backpack needs to be bound to a new transmitter, it will be easiest to reflash the ESP32 with the firmware in the latest release, and then rebind.
 
+### Video Channels
+
+The plugin can move video channels in both directions. The behavior is selected with `Backpack Channel Mode` in `ELRS Backpack General Settings`; the two modes are exclusive.
+
+> [!IMPORTANT]
+> The `Backpack controls node` mode needs a **specific timer backpack firmware**. The standard `Race Timer` firmware only passes the `DVR Rec` state of the
+> race director's radio to the timer and drops every other message, including the video channel (`MSP_SET_VTX_CONFIG`). Use a firmware that also relays `MSP_SET_VTX_CONFIG`
+> to the serial port, such as [this branch](https://github.com/FLORIANSV35/Backpack/tree/timer-msp-set-vtx-config).
+> The `RotorHazard sends to pilots` mode works with the standard firmware.
+
+- **Backpack controls node**: when the race director changes the video channel on the radio, the backpack reports it and the node chosen in `Node Controlled by Backpack` is moved to that channel.
+The radio's backpack must share the bind phrase of the timer's backpack. Channel changes are ignored while a race is staging or running.
+- **RotorHazard sends to pilots**: the `ELRS Send Channels` panel of the `Run` page sends channels to the pilots' goggles and radio. Nothing is sent automatically.
+  - `Send to current pilots`: the pilots of the race about to be played, with the channel of their node.
+  - `Send to all pilots`: every pilot of the planned heats, with the channel of the first of those heats they race in.
+  - `Send to pilot`: the selected pilot, with the channel of the current heat, or of their next heat.
+
+  Channels are sent to the pilot's bind phrase (see `ELRS BP Bindphrase`). Goggles and radio sharing it both receive the channel; the radio's ExpressLRS module (ESP32) applies it
+  and passes it to the aircraft's VTX. Only channels of the standard VTX table (bands A, B, E, F, R, L) can be sent. Nodes with another frequency, or heats that assign frequencies automatically, are reported and skipped.
+
 # Extra Hardware Notes
 
 ## 3D Printed Case
@@ -191,6 +211,14 @@ Turns the pilot's ELRS OSD on/off
 ## ELRS Backpack General Settings
 
 ![General Settings](docs/general_settings.png)
+
+### Backpack Channel Mode : SELECT
+
+`Off`, `Backpack controls node` or `RotorHazard sends to pilots`. See [Video Channels](#video-channels). The modes are exclusive.
+
+### Node Controlled by Backpack : INT
+
+Node moved to the channel reported by the race director's radio. Used by the `Backpack controls node` mode. Set to `0` to move no node.
 
 ### Start Race from Transmitter : CHECKBOX
 

@@ -70,6 +70,87 @@ def initialize(rhapi: RHAPI.RHAPI):
     )
     rhapi.fields.register_option(_autosave_on_stop, "elrs_settings")
 
+    _vtx_mode = UIField(
+        "_vtx_mode",
+        "Backpack Channel Mode",
+        desc="Off - channels are not used. Backpack controls node - a channel change "
+        "reported by the director's radio moves the node set below. RotorHazard sends "
+        "to pilots - enables the buttons of the Run page. The two are exclusive.",
+        field_type=UIFieldType.SELECT,
+        options=[
+            UIFieldSelectOption(value="0", label="Off"),
+            UIFieldSelectOption(value="1", label="Backpack controls node"),
+            UIFieldSelectOption(value="2", label="RotorHazard sends to pilots"),
+        ],
+        value="0",
+    )
+    rhapi.fields.register_option(_vtx_mode, "elrs_settings")
+
+    _vtx_node = UIField(
+        "_vtx_node",
+        "Node Controlled by Backpack",
+        desc="Used by the 'Backpack controls node' mode: node moved to the channel "
+        "reported by the radio (MSP_SET_VTX_CONFIG). Ignored while a race is running.",
+        field_type=UIFieldType.BASIC_INT,
+        value=0,
+    )
+    rhapi.fields.register_option(_vtx_node, "elrs_settings")
+
+    #
+    # Send channels (Run page)
+    #
+
+    rhapi.ui.register_panel("elrs_channels", "ELRS Send Channels", "run", order=0)
+
+    def refresh_pilot_options(*_, broadcast: bool = True) -> None:
+        """
+        Rebuilds the pilot list of the 'Send to pilot' selector
+        """
+        options = [UIFieldSelectOption(value=None, label="")]
+        try:
+            pilots = rhapi.db.pilots
+        except Exception:  # database not ready while plugins load
+            pilots = []
+
+        for pilot in pilots:
+            options.append(
+                UIFieldSelectOption(value=str(pilot.id), label=pilot.display_callsign)
+            )
+
+        send_pilot = UIField(
+            "_send_pilot",
+            "Pilot",
+            desc="Pilot to send the channel of their current or next heat to",
+            field_type=UIFieldType.SELECT,
+            options=options,
+        )
+        rhapi.fields.register_option(send_pilot, "elrs_channels")
+        if broadcast:
+            rhapi.ui.broadcast_ui("run")
+
+    refresh_pilot_options(broadcast=False)
+    for event in (Evt.STARTUP, Evt.PILOT_ADD, Evt.PILOT_ALTER, Evt.PILOT_DELETE):
+        rhapi.events.on(event, refresh_pilot_options, name=f"elrs_pilots_{event}")
+
+    rhapi.ui.register_quickbutton(
+        "elrs_channels",
+        "send_current",
+        "Send to current pilots",
+        controller.send_channels_current,
+    )
+    rhapi.ui.register_quickbutton(
+        "elrs_channels",
+        "send_all",
+        "Send to all pilots",
+        controller.send_channels_all,
+    )
+    rhapi.ui.register_quickbutton(
+        "elrs_channels",
+        "send_pilot",
+        "Send to pilot",
+        controller.send_channel_pilot,
+    )
+
     _socket_ip = UIField(
         "_socket_ip",
         "ELRS Netpack Address",
