@@ -4,7 +4,8 @@ import RHAPI
 from eventmanager import Evt
 from RHUI import UIField, UIFieldSelectOption, UIFieldType
 
-from .connections import ConnectionTypeEnum
+from .bridge_page import make_bridge_blueprint
+from .connections import ConnectionTypeEnum, web_bridge
 from .elrs_backpack import ELRSBackpack
 
 logger = logging.getLogger(__name__)
@@ -13,6 +14,16 @@ logger = logging.getLogger(__name__)
 def initialize(rhapi: RHAPI.RHAPI):
 
     controller = ELRSBackpack("elrs", "ELRS", rhapi)
+
+    #
+    # Browser (Web Serial) bridge
+    #
+
+    web_bridge.rhapi = rhapi
+    web_bridge.controller = controller
+    rhapi.ui.blueprint_add(make_bridge_blueprint(rhapi))
+    rhapi.ui.socket_listen("elrs_web_state", web_bridge.on_state)
+    rhapi.ui.socket_listen("elrs_web_rx", web_bridge.on_rx)
 
     rhapi.events.on(Evt.VRX_INITIALIZE, controller.register_handlers)
     rhapi.events.on(Evt.PILOT_ALTER, controller.pilot_alter)
@@ -69,6 +80,13 @@ def initialize(rhapi: RHAPI.RHAPI):
         value="0",
     )
     rhapi.fields.register_option(_autosave_on_stop, "elrs_settings")
+
+    rhapi.ui.register_markdown(
+        "elrs_settings",
+        "elrs_web_help",
+        "Connection type **WEB**: open the [browser bridge](/elrs_web) in Chrome "
+        "on the PC the ESP is plugged into.",
+    )
 
     _socket_ip = UIField(
         "_socket_ip",

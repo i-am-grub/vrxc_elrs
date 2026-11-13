@@ -171,6 +171,8 @@ My personal setup:
 [Some groups](https://youtu.be/FZvmfyvRiPE?si=LXu0zXUpDj9NsnUN&t=201) have had good luck with moving the ESP32 closer to the pilots by using a long USB cable or a USB extension cable.
 
 > [!NOTE]
+> See [Timer Backpack Connected to a Computer](#timer-backpack-connected-to-a-computer) for a connection that goes through the race director's (or any) computer.
+>
 > The RotorHazard development team is looking into setting up the ability to peform a serial-over-https connection. This will allow groups to connect the timer backpack directly to
 > the race director's computer instead of the timer. 
 
@@ -336,3 +338,25 @@ Row to show lap or gap time
 ### Results Rows : INT
 
 The row to start showing a pilot's post race statistics on. It will also use the follow row in conjunction with the entered one.
+
+## Timer Backpack Connected to a Computer
+
+The timer backpack does not have to be plugged into the timer. With the `WEB` connection type, it is plugged into any computer running
+Chrome or Edge (the browser's Web Serial feature is used), placed close to the pilots. The computer only needs to reach the timer over the network.
+
+```
+RotorHazard --network--> browser on the computer --USB--> timer backpack --ESPNow--> goggles
+```
+
+This works with the standard `Race Timer` backpack firmware.
+
+1. In `ELRS Backpack General Settings`, set the `Backpack Connection Type` to `WEB`.
+2. Browsers only allow Web Serial on secure pages, and RotorHazard is served over plain http. Once per computer, open
+`chrome://flags/#unsafely-treat-insecure-origin-as-secure`, add the timer's address (for example `http://192.168.1.10:5000`), set the flag to `Enabled`, and relaunch the browser.
+3. On that computer, open `http://<timer address>/elrs_web`, plug in the backpack, and press `Connect ESP`. The page reconnects to the device by itself on later visits.
+4. The plugin connects to the backpack as soon as the page reports the device is open.
+
+Keep the page open during the event. Only one computer should run the bridge page at a time.
+
+> [!NOTE]
+> The bridge page does not require the admin password, like the other public pages. Any client of the timer's network could open it or send data on its socket events.

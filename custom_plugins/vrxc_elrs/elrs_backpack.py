@@ -9,7 +9,7 @@ from gevent.queue import Queue
 from RHRace import RaceStatus, WinCondition
 from VRxControl import VRxController
 
-from .connections import BackpackConnection, ConnectionTypeEnum
+from .connections import BackpackConnection, ConnectionTypeEnum, web_bridge
 from .msp import MSPPacket, MSPPacketType, MSPTypes
 
 logger = logging.getLogger(__name__)
@@ -111,6 +111,13 @@ class ELRSBackpack(VRxController):
                 message = "Instance not running on Raspberry Pi"
                 self._rhapi.ui.message_notify(self._rhapi.language.__(message))
 
+        elif con == ConnectionTypeEnum.WEB:
+            if web_bridge.open:
+                self._establish_connection(con.type_)
+            else:
+                message = "Open the browser bridge page (/elrs_web) and connect the ESP"
+                self._rhapi.ui.message_notify(self._rhapi.language.__(message))
+
         elif con == ConnectionTypeEnum.SOCKET:
             addr = self._rhapi.db.option("_socket_ip", None)
             if addr is not None:
@@ -124,6 +131,15 @@ class ELRSBackpack(VRxController):
             else:
                 message = "IP Address for socket not provided"
                 self._rhapi.ui.message_notify(self._rhapi.language.__(message))
+
+    def start_connection_if_web(self) -> None:
+        """
+        Called when the browser bridge reports its serial port is open.
+        Connects automatically when the web connection type is selected.
+        """
+        id_ = self._rhapi.db.option("_conn_opt", None, as_int=True)
+        if id_ == ConnectionTypeEnum.WEB.id_ and not self._backpack_connected:
+            self.start_connection()
 
     def _establish_connection(
         self, connection_type: type[BackpackConnection], **kwargs

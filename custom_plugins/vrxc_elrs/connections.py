@@ -1,3 +1,4 @@
+import base64
 import logging
 from dataclasses import dataclass
 from enum import Enum
@@ -10,7 +11,7 @@ import serial
 import serial.tools.list_ports
 from gevent.queue import Queue
 
-from .msp import MSPPacket, MSPPacketType, MSPTypes
+from .msp import MSP_HEADER_LENGTH, MSPPacket, MSPPacketType, MSPTypes
 
 SOCKET_PORT = 8080
 AVOIDED_PORTS = {"/dev/ttyAMA0", "/dev/ttyAMA10", "COM1"}
@@ -294,6 +295,149 @@ class SocketConnection:
         self._socket.close()
 
 
+class WebBridge:
+    """
+    Shared state between the browser bridge page (Web Serial, running on the
+    PC the ESP is plugged into) and the active `WebConnection`.
+
+    The page opens the serial port and reports its state over socket.io;
+    MSP bytes then flow in both directions through socket.io events.
+    """
+
+    TX_EVENT = "elrs_web_tx"
+    RX_EVENT = "elrs_web_rx"
+
+    def __init__(self) -> None:
+        self.rhapi = None
+        self.controller = None
+        self.open = False
+        self.connection: Union["WebConnection", None] = None
+
+    def broadcast(self, data: bytes) -> None:
+        """
+        Sends raw MSP bytes to the browser page(s)
+        """
+        assert self.rhapi is not None
+        self.rhapi.ui.socket_broadcast(
+            self.TX_EVENT, {"d": base64.b64encode(data).decode("ascii")}
+        )
+
+    def on_state(self, data: dict) -> None:
+        """
+        The browser opened or closed the ESP serial port
+        """
+        self.open = bool(data.get("open"))
+        logger.info("Browser bridge serial port %s", "open" if self.open else "closed")
+
+        if self.controller is None:
+            return
+
+        if self.open:
+            if self.connection is None or not self.connection.connected:
+                self.controller.start_connection_if_web()
+        elif self.connection is not None and self.connection.connected:
+            self.connection.disconnect()
+
+    def on_rx(self, data: dict) -> None:
+        """
+        Bytes read from the ESP by the browser
+        """
+        if self.connection is None:
+            return
+
+        try:
+            raw = base64.b64decode(data.get("d", ""))
+        except ValueError:
+            return
+
+        self.connection.feed(raw)
+
+
+web_bridge = WebBridge()
+
+
+class WebConnection:
+    """
+    Backpack over a browser (Web Serial) bridge
+    """
+
+    _send_greenlet: Union[gevent.Greenlet, None] = None
+
+    def __init__(self, send_queue: Queue, recieve_queue: Queue):
+        self._connected = False
+        self._send_queue = send_queue
+        self._recieve_queue = recieve_queue
+        self._buffer = bytearray()
+
+    @property
+    def connected(self) -> bool:
+        return self._connected
+
+    def connect(self) -> bool:
+        if not web_bridge.open:
+            logger.warning(
+                "No browser bridge connected. Open /elrs_web on the PC and connect the ESP."
+            )
+            return False
+
+        self._connected = True
+        web_bridge.connection = self
+
+        self._send_greenlet = gevent.spawn(self._send)
+        return True
+
+    def feed(self, data: bytes) -> None:
+        """
+        Adds bytes received from the browser, and queues every complete
+        MSP v2 frame (`$X<type> flags func(2) len(2) payload crc`).
+        Browsers split serial data at arbitrary points, so frames can
+        arrive in several pieces.
+        """
+        self._buffer += data
+
+        while True:
+            start = self._buffer.find(b"$X")
+            if start < 0:
+                # Keep a trailing "$" that may be the start of the next frame
+                del self._buffer[: len(self._buffer) - (self._buffer[-1:] == b"$")]
+                return
+            del self._buffer[:start]
+
+            if len(self._buffer) < MSP_HEADER_LENGTH:
+                return
+
+            frame_len = MSP_HEADER_LENGTH + int.from_bytes(self._buffer[6:8], "little") + 1
+            if len(self._buffer) < frame_len:
+                return
+
+            frame = bytes(self._buffer[:frame_len])
+            del self._buffer[:frame_len]
+
+            try:
+                for packet in MSPPacket.packets_from_bytes(frame):
+                    self._recieve_queue.put(packet)
+            except ValueError:
+                logger.debug("Ignoring MSP packet with unknown function")
+
+    def _send(self) -> None:
+        """
+        Forwards packets from the queue to the browser
+        """
+        while self._connected:
+            packet: MSPPacket = self._send_queue.get()
+            web_bridge.broadcast(bytes(packet.get_packet()))
+
+    def disconnect(self):
+        self._connected = False
+        self._buffer.clear()
+
+        if self._send_greenlet is not None:
+            self._send_greenlet.kill()
+
+        if web_bridge.connection is self:
+            web_bridge.connection = None
+
+
 class ConnectionTypeEnum(ConnectionType, Enum):
     """
     Enum for different connection selections
@@ -302,3 +446,4 @@ class ConnectionTypeEnum(ConnectionType, Enum):
     USB = SerialConnection, 1
     ONBOARD = SerialConnection, 2
     SOCKET = SocketConnection, 3
+    WEB = WebConnection, 4
